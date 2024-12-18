@@ -1,0 +1,13 @@
+---
+- name: Launch proxy container
+  docker_container:
+    name: my_proxy
+    image: foderac3/tp-devops-httpd:latest
+    state: started
+    restart_policy: always
+    ports:
+      - "80:80"
+    networks:
+      - name: my_app_network
+    volumes:
+      - /path/to/nginx/config:/etc/nginx/conf.d
