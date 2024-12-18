@@ -1,7 +1,0 @@
-- hosts: fode.diedhiou.takima.cloud
-  gather_facts: false
-  become: true
-
-  tasks:
-   - name: Test connection
-     ping:
