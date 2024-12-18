@@ -1,0 +1,13 @@
+---
+- name: Launch application container
+  docker_container:
+    name: my_app
+    image: foderac3/tp-devops-simple-api:latest
+    state: started
+    restart_policy: always
+    env:
+      DATABASE_URL: postgres://user:password@my_database/my-db
+    networks:
+      - name: my_app_network
+    volumes:
+      - /path/to/application/config:/app/config
