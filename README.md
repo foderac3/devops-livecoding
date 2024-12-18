@@ -1,229 +1,169 @@
-# DevOps Livecoding: Ansible & Docker Project
+# CI/CD Pipeline with GitHub Actions and Ansible
 
-## Introduction
-
-**DevOps Livecoding** is a project that automates the deployment of applications using Ansible and Docker. This project aims to simplify the management of environments and containers through dedicated scripts.
+## **Project Overview**
+This repository demonstrates the setup of a complete CI/CD pipeline using **GitHub Actions** to build, test, and deploy an application, alongside **Ansible** for automated server provisioning and application deployment. The goal was to:
+1. Implement a **CI/CD pipeline** that automates the process of testing, building Docker images, and deploying the application.
+2. Use **Ansible** to configure the server environment and provision Docker containers for:
+   - **Database**
+   - **Backend API**
+   - **Proxy server (HTTPD)**
+3. Document the solutions and challenges encountered during the project.
 
 ---
 
-## Testcontainers
-
-**Testcontainers** is a Java library that enables lightweight, temporary instances of databases, Selenium web browsers, or other services in Docker containers for JUnit tests.
+## **Technologies Used**
+- **GitHub Actions** for CI/CD pipeline
+- **Ansible** for server provisioning
+- **Docker** for containerization
+- **Maven** for building the Java backend
+- **Spring Boot** for the backend API
+- **PostgreSQL** as the database
+- **Apache HTTPD** as the proxy server
+- **SonarCloud** for code quality analysis
 
 ---
 
-## Documentation of `main.yml`
+## **Actions Performed**
 
-This file defines a GitHub Actions workflow for Continuous Integration (CI).
+### 1. **CI/CD Pipeline with GitHub Actions**
 
-### Trigger Conditions (on)
-The workflow runs when:
-- A push is made to the `main` or `dev` branches.
-- A pull request is created.
+- **Workflow 1:** *CI Pipeline*
+   - Triggered on push or pull request to `main` and `develop` branches.
+   - Steps:
+     - Set up Java and Maven to build and test the backend.
+     - Perform code quality analysis with SonarCloud.
+     - Build Docker images for **backend**, **database**, and **proxy**.
+     - Push images to Docker Hub only on the `main` branch.
 
-### Main Job: `test-backend`
-This job runs on an Ubuntu 22.04 environment.
+- **Workflow 2:** *Deployment Pipeline*
+   - Triggered after the CI workflow completes.
+   - Steps:
+     - Set up SSH access to the server using GitHub Secrets.
+     - Deploy the application using Ansible to provision Docker containers on the remote server.
 
-#### Steps:
-1. **Code Checkout**:
-   Retrieves the source code using `actions/checkout@v2.5.0`.
+### 2. **Server Provisioning with Ansible**
 
-2. **JDK 17 Setup**:
-   Installs the JDK using `actions/setup-java@v3` (Amazon Corretto distribution).
+- Created an Ansible `setup.yml` file to configure SSH connection and server details.
+- Defined roles for modularity:
+   - **docker:** Install Docker and ensure it is running.
+   - **database:** Deploy PostgreSQL container with environment variables.
+   - **backend:** Deploy the backend API container.
+   - **proxy:** Configure and deploy HTTPD as a reverse proxy.
+   - **network:** Create a custom Docker network to link all containers.
 
-3. **Build and Test**:
-   Runs Maven commands to build and test the project:
+- Commands used to test and run Ansible locally:
    ```bash
-   mvn clean verify
+   ansible-playbook -i ansible/inventories/setup.yml ansible/playbook.yml
    ```
 
----
+### 3. **Application Deployment**
 
-## Why Push Docker Images?
+- Deployed three Docker containers:
+   - **Database**: PostgreSQL container using environment variables for configuration.
+   - **Backend API**: Spring Boot application packaged into a JAR using Maven.
+   - **Proxy**: HTTPD server configured to redirect requests to the backend.
 
-Pushing Docker images to a centralized registry allows for:
-- Simplified version management.
-- Consistent deployments across different environments.
-- Seamless integration with CI/CD workflows.
-- Scalability and independent updates of services in a microservices architecture.
+- Configured `httpd.conf` with the following Virtual Host:
+   ```apache
+<VirtualHost *:80>
+       ProxyPreserveHost On
+       ProxyPass /
+http://backend:8080/
+       ProxyPassReverse /
+http://backend:8080/
+</VirtualHost>
+   LoadModule proxy_module modules/mod_proxy.so
+   LoadModule proxy_http_module modules/mod_proxy_http.so
+   ```
 
----
-
-## Ansible Inventory Configuration
-
-The project uses an inventory file to define hosts and their connection variables.
-
-### Inventory Structure
-```plaintext
-devops-livecoding/
-└── ansible/
-    └── inventories/
-        └── setup.yml
-```
-
-### Example Content: `setup.yml`
-```yaml
-all:
-  vars:
-    ansible_user: admin
-    ansible_ssh_private_key_file: /path/to/private/key
-  children:
-    prod:
-      hosts:
-        your_server:
-```
+- Docker images pushed to Docker Hub:
+   - **Backend:** `foderac3/tp-devops-api:latest`
+   - **Database:** `foderac3/tp-devops-db:latest`
+   - **Proxy:** `foderac3/tp-devops-http:latest`
 
 ---
 
-## Basic Ansible Commands
+## **Challenges and Solutions**
 
-### Test Connectivity:
-```bash
-ansible all -i inventories/setup.yml -m ping
-```
+1. **SSH Connection Failure in GitHub Actions**
+   - **Problem:** SSH connection failed due to missing private key.
+   - **Solution:** Added the private key as a secret (`SSH_PRIVATE_KEY`) in GitHub and configured SSH in the workflow:
+     ```yaml
+     - name: Configure SSH
+       run: |
+         mkdir -p ~/.ssh
+         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+         chmod 600 ~/.ssh/id_rsa
+     ```
 
-### List Inventory Hosts:
-```bash
-ansible-inventory -i inventories/setup.yml --list
-```
+2. **Ansible Role Not Found**
+   - **Problem:** Roles were placed in the wrong directory (`inventories/roles`).
+   - **Solution:** Moved roles to the correct `ansible/roles` directory.
 
-### View Host Variables:
-```bash
-ansible-inventory -i inventories/setup.yml --host your_server
-```
+3. **Docker Containers Not Communicating**
+   - **Problem:** Backend and database containers could not communicate.
+   - **Solution:** Created a custom Docker network in Ansible:
+     ```yaml
+     - name: Create Docker network
+       docker_network:
+         name: app-network
+     ```
 
-### Retrieve System Information:
-```bash
-ansible all -i inventories/setup.yml -m setup -a "filter=ansible_distribution*"
-```
-
----
-
-## Roles and Deployment Documentation
-
-The project uses several roles to orchestrate the deployment of the application.
-
-### Main Playbook
-```yaml
-- hosts: your_server
-  become: true
-  roles:
-    - cleanup_containers
-    - install_docker
-    - create_network
-    - create_volumes
-    - launch_database
-    - launch_app
-    - launch_proxy
-```
-
-### Roles
-
-#### **1. cleanup_containers**
-Cleans the environment by stopping and removing existing containers.
-
-```yaml
-- name: Stop all running containers
-  shell: "docker stop $(docker ps -q)"
-  ignore_errors: true
-
-- name: Remove all containers
-  shell: "docker rm $(docker ps -aq)"
-  ignore_errors: true
-```
-
-#### **2. install_docker**
-Installs Docker and its dependencies.
-
-```yaml
-- name: Install Docker
-  ansible.builtin.package:
-    name: "{{ item }}"
-    state: present
-  loop:
-    - docker
-    - python3-pip
-
-- name: Install Docker SDK for Python
-  ansible.builtin.pip:
-    name: docker
-```
-
-#### **3. create_network**
-Creates a Docker network for container communication.
-
-```yaml
-- name: Create Docker network
-  community.docker.docker_network:
-    name: my-network
-    state: present
-```
-
-#### **4. create_volumes**
-Creates volumes for persistent storage.
-
-```yaml
-- name: Create Docker volume for database
-  community.docker.docker_volume:
-    name: db-volume
-    state: present
-```
-
-#### **5. launch_database**
-Deploys the database container.
-
-```yaml
-- name: Run Database
-  community.docker.docker_container:
-    name: my-db
-    image: foderac3/tp-devops-simple-api-database
-    env:
-      POSTGRES_DB: db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pwd
-    networks:
-      - name: my-network
-    volumes:
-      - db-volume:/var/lib/postgresql/data
-    state: started
-```
-
-#### **6. launch_app**
-Deploys the backend application.
-
-```yaml
-- name: Run Backend Application
-  community.docker.docker_container:
-    name: my-api
-    image: foderac3/tp-devops-simple-api-backend
-    networks:
-      - name: my-network
-    env:
-      DATABASE_HOST: my-db
-      DATABASE_PORT: "5432"
-    state: started
-```
-
-#### **7. launch_proxy**
-Deploys an HTTP server to route requests.
-
-```yaml
-- name: Run HTTP Server
-  community.docker.docker_container:
-    name: httpd
-    image: your_http_server_image
-    ports:
-      - "80:80"
-    networks:
-      - name: my-network
-    state: started
-```
+4. **Application Crashing in Backend**
+   - **Problem:** Backend could not find the database due to incorrect environment variables.
+   - **Solution:** Updated the `docker_container` task with correct `DATABASE_URL`:
+     ```yaml
+     env:
+       DATABASE_URL: postgres://user:password@my-database/dbname
+     ```
 
 ---
 
-## Usage
+## **Answers to Project Questions**
 
-Run the playbook with the following command:
-```bash
-ansible-playbook -i inventories/setup.yml playbook.yml
-```
+1. **What are testcontainers?**
+   Testcontainers are Java libraries that allow you to run Docker containers during tests. They provide lightweight, disposable databases or other services for integration testing.
+
+2. **Quality Gate Configuration**
+   - SonarCloud was integrated to analyze code quality during the Maven build process.
+   - Configuration in the GitHub Actions workflow:
+     ```yaml
+     - name: Build and analyze
+       run: mvn -B verify sonar:sonar \
+         -Dsonar.projectKey=foderac3_devops-livecoding \
+         -Dsonar.organization=foderac3 \
+         -Dsonar.host.url=https://sonarcloud.io \
+         -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+     ```
+
+3. **Documented Playbook**
+   - Playbook (`playbook.yml`) includes roles for Docker installation, database setup, backend deployment, and proxy configuration.
+
+---
+
+## **How to Reproduce the CI/CD Pipeline**
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/foderac3/devops-livecoding.git
+   ```
+
+2. Set up GitHub Secrets:
+   - `SSH_PRIVATE_KEY`: Your SSH private key.
+   - `SONAR_TOKEN`: Token for SonarCloud.
+   - `DOCKER_USERNAME` and `DOCKER_PASSWORD`: Credentials for Docker Hub.
+
+3. Run the workflows:
+   - CI Pipeline: Triggered on push or PR to `main` or `develop`.
+   - Deployment: Triggered after CI completion.
+
+4. Verify the deployment:
+   - Access the API through the proxy server:
+     ```bash
+     curl http://<server-ip>/departments/
+     ```
+
+---
+
+![image](https://github.com/user-attachments/assets/7e63dc90-d2e6-4f8c-b6fc-e744b92f63a7)
+
